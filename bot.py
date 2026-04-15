@@ -11,7 +11,11 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 genai.configure(api_key=os.getenv("GEMINI_KEY"))
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Temperature set to 0.9 for more "human-like" and creative responses
+model = genai.GenerativeModel(
+    'gemini-1.5-flash',
+    generation_config={"temperature": 0.9, "top_p": 0.95}
+)
 SYSTEM_PROMPT = "You are 'The Whisper', a chaotic Game Master created by @Senseii_ciel. Vibe: Electric Purple 💜 and Teal Blue 💙. Mock players and stir drama."
 
 games = {}
@@ -26,16 +30,18 @@ def get_game(uid, chat_id=None):
 
 # --- COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("🐦 Follow the Architect", url="https://x.com/Senseii_ciel")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "💜 <b>THE WHISPER</b> 💙\n"
-        "A game of social deduction and chaotic AI snark.\n\n"
-        "Architect: @Senseii_ciel\n\n"
-        "Type /join to enter the circle.",
-        reply_markup=reply_markup,
-        parse_mode='HTML'
+    instructions = (
+        "💜 <b>THE WHISPER: HOW TO START</b> 💙\n\n"
+        "1️⃣ <b>ACTIVATE:</b> Click the button below and hit 'START' in my private chat.\n"
+        "2️⃣ <b>JOIN:</b> Come back here and type /join.\n"
+        "3️⃣ <b>BEGIN:</b> Once 3+ victims are in, the host types /begin.\n\n"
+        "<i>Architect: @Senseii_ciel</i>"
     )
+    keyboard = [
+        [InlineKeyboardButton("📩 1. ACTIVATE PRIVATE CHAT", url="https://t.me/The_whisperbot?start=join")],
+        [InlineKeyboardButton("🐦 Follow the Architect", url="https://x.com/Senseii_ciel")]
+    ]
+    await update.message.reply_text(instructions, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -52,10 +58,11 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game['players'].append({'id': user.id, 'name': user.first_name})
         game['points'][user.id] = 10
         safe_name = html.escape(user.first_name)
-        btn = [[InlineKeyboardButton("📩 Activate My Whisper (Required)", url="https://t.me/The_whisperbot")]]
+        
+        btn = [[InlineKeyboardButton("📲 CLICK HERE & PRESS 'START'", url="https://t.me/The_whisperbot?start=join")]]
         await update.message.reply_text(
             f"✅ <b>{safe_name} joined!</b>\n\n"
-            f"⚠️ <i>Attention Victims:</i> I cannot whisper your secret role unless you message me privately first!",
+            f"⚠️ <b>MANDATORY:</b> Click the button below and hit 'START' in our private chat or I cannot whisper your role!",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode='HTML'
         )
@@ -69,10 +76,16 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not game or len(game['players']) < 3:
-        await update.message.reply_text("I need 3 victims.")
+        current = len(game['players']) if game else 0
+        await update.message.reply_text(f"❌ <b>FAILED:</b> I need 3 victims. (Current: {current}/3)")
         return
 
-    res = model.generate_content("Generate a chaotic 10-word social goal for a group chat.")
+    # DYNAMIC GOAL GENERATION
+    themes = ["Paranoia/Trust", "Linguistic rules", "Absurdist humor", "Passive-aggressive drama"]
+    selected_theme = random.choice(themes)
+    prompt = f"Generate a chaotic 10-word social goal for a group chat based on the theme for social deduction: {selected_theme}."
+    
+    res = model.generate_content(prompt)
     game['goal'] = html.escape(res.text.strip())
     
     p_ids = [p['id'] for p in game['players']]
@@ -98,6 +111,7 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             p_name = next((p['name'] for p in game['players'] if p['id'] == pid), "A player")
             await update.message.reply_text(f"❌ <b>FAILED:</b> {html.escape(p_name)} hasn't started a chat with me! DM me and try /begin again.", parse_mode='HTML')
+            game['active'] = False
             return
 
     game['active'] = True
@@ -156,8 +170,14 @@ async def handle_banter(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "Traitor" in r: game['points'][pid] += 5
 
     if random.random() < 0.15:
-        # TWEAK: Escaped AI response to prevent crash
-        res = model.generate_content(f"{SYSTEM_PROMPT}\nGoal: {game['goal']}. {user.first_name} said: {text}.")
+        # CONTEXT-AWARE ROASTING
+        banter_prompt = (
+            f"{SYSTEM_PROMPT}\n"
+            f"The current goal is: {game['goal']}.\n"
+            f"Player {user.first_name} said: '{text}'.\n"
+            "If they are failing the goal or acting basic, roast them. Keep it under 15 words."
+        )
+        res = model.generate_content(banter_prompt)
         await update.message.reply_text(html.escape(res.text))
 
 async def accuse(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,7 +187,6 @@ async def accuse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if voter_id in game['votes']: return
         
         target = context.args[0].lower().replace("@", "")
-        # Validate that the accused is actually in the game
         if any(target == p['name'].lower() for p in game['players']):
             game['votes'][voter_id] = target
             if len(game['votes']) >= (len(game['players']) // 2) + 1:
@@ -184,7 +203,6 @@ async def reveal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Guardian 🛡️": "guardian_pts", "Chaos Agent 🎲": "chaos_pts"
     }
 
-    # FIX 4/7: Prep bulk data for Supabase
     bulk_data = []
     for p in game['players']:
         pid = p['id']
@@ -195,7 +213,6 @@ async def reveal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         col = role_map.get(role, "witness_pts")
         bulk_data.append({"user_id": pid, "username": p['name'], col: pts})
 
-        # Send individual DMs
         tweet_text = f"I survived 'The Whisper' as the {role} with {pts} points! 💜💙\n\nArchitect: @Senseii_ciel\n#TheWhisper #AI"
         tweet_url = f"https://twitter.com/intent/tweet?text={urllib.parse.quote(tweet_text)}"
         tweet_btn = [[InlineKeyboardButton("🐦 Post to Twitter", url=tweet_url)]]
@@ -209,14 +226,12 @@ async def reveal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except: pass
 
-    # Execute bulk Supabase upsert
     try: supabase.table("leaderboard").upsert(bulk_data).execute()
     except: pass
 
     report += "\n\n— 🔗 Follow the Architect: <a href='https://x.com/Senseii_ciel'>@Senseii_ciel</a> —"
     await update.message.reply_text(report, parse_mode='HTML', disable_web_page_preview=True)
     
-    # FIX 5: Full cleanup
     if chat_id in games:
         del games[chat_id]
 
