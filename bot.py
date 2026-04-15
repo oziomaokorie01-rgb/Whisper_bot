@@ -33,7 +33,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Architect: @Senseii_ciel\n\n"
         "Type /join to enter the circle.",
         reply_markup=reply_markup,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -56,7 +56,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ **{user.first_name} joined!**\n\n"
             f"⚠️ *Attention Victims:* I cannot whisper your secret role unless you message me privately first!",
             reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
 async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -178,13 +178,13 @@ async def reveal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=pid, 
                 text=f"🔥 **THE REVEAL**\n\nYour Role: {role}\nYour Score: {pts}\n\nBrag about it on the timeline:",
                 reply_markup=InlineKeyboardMarkup(tweet_btn),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         except: pass
 
     # Twitter Footer for Group Chat
     report += "\n\n— 🔗 Follow the Architect: [x.com/Senseii_ciel](https://x.com/Senseii_ciel) —"
-    await update.message.reply_text(report, parse_mode='Markdown', disable_web_page_preview=True)
+    await update.message.reply_text(report, parse_mode='HTML', disable_web_page_preview=True)
     game['active'] = False
 
 if __name__ == '__main__':
