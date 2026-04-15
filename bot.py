@@ -118,7 +118,8 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game = get_game(update.effective_user.id)
     if game and game['roles'].get(update.effective_user.id) == "Detective 🕵️" and context.args:
         target = context.args[0].lower()
-        is_traitor = any(target in p['name'].lower() for p_id, r in game['roles'].items() if "Traitor" in r)
+        # FIX: Correctly checking the players list using the game roles
+        is_traitor = any(target in p['name'].lower() for p in game['players'] if "Traitor" in game['roles'].get(p['id'], ""))
         await update.message.reply_text("🔍 Suspect found." if is_traitor else "🔍 Likely clean.")
 
 # --- ENGINE & ENDGAME ---
