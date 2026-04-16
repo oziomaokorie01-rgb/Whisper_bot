@@ -71,51 +71,63 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     game = games.get(chat_id)
     
+    # 1. Host Verification
     if game and update.effective_user.id != game['host_id']:
         await update.message.reply_text("Only the Architect's proxy (the host) can start this chaos.")
         return
 
+    # 2. Player Count Check
     if not game or len(game['players']) < 3:
         current = len(game['players']) if game else 0
-        await update.message.reply_text(f"❌ <b>FAILED:</b> I need 3 victims. (Current: {current}/3)")
+        await update.message.reply_text(f"❌ <b>FAILED:</b> I need 3 victims. (Current: {current}/3)", parse_mode='HTML')
         return
 
-    # DYNAMIC GOAL GENERATION
-    themes = ["Paranoia/Trust", "Linguistic rules", "Absurdist humor", "Passive-aggressive drama"]
-    selected_theme = random.choice(themes)
-    prompt = f"Generate a chaotic 10-word social goal for a group chat based on the theme for social deduction: {selected_theme}."
-    
-    res = model.generate_content(prompt)
-    game['goal'] = html.escape(res.text.strip())
-    
-    p_ids = [p['id'] for p in game['players']]
-    random.shuffle(p_ids)
-    
-    roles = {}
-    roles[p_ids[0]] = "Traitor 😈"
-    if len(p_ids) >= 8: roles[p_ids[1]] = "Traitor 😈"
-    
-    specialists = {2: "Detective 🕵️", 3: "Guardian 🛡️", 4: "Chaos Agent 🎲"}
-    for i, name in specialists.items():
-        if i < len(p_ids) and p_ids[i] not in roles: roles[p_ids[i]] = name
+    try:
+        # 3. DYNAMIC GOAL GENERATION (With Safety)
+        themes = ["Paranoia/Trust", "Linguistic rules", "Absurdist humor", "Passive-aggressive drama"]
+        selected_theme = random.choice(themes)
+        prompt = f"Generate a chaotic 10-word social goal for a group chat based on the theme: {selected_theme}."
         
-    for pid in p_ids:
-        if pid not in roles: roles[pid] = "Witness 👤"
+        # If Gemini is slow/down, this might be where it hangs
+        res = model.generate_content(prompt)
+        if not res or not res.text:
+            game['goal'] = "Gaslight everyone into thinking the bot is broken."
+        else:
+            game['goal'] = html.escape(res.text.strip())
         
-    game['roles'] = roles
-    
-    for pid, role in roles.items():
-        pwr = {"Traitor 😈": "/gaslight", "Detective 🕵️": "/scan", "Guardian 🛡️": "/shield", "Chaos Agent 🎲": "/blackout"}.get(role, "Survival")
-        try: 
-            await context.bot.send_message(chat_id=pid, text=f"Role: {role}\nPower: {pwr}")
-        except:
-            p_name = next((p['name'] for p in game['players'] if p['id'] == pid), "A player")
-            await update.message.reply_text(f"❌ <b>FAILED:</b> {html.escape(p_name)} hasn't started a chat with me! DM me and try /begin again.", parse_mode='HTML')
-            game['active'] = False
-            return
+        # 4. Role Shuffling
+        p_ids = [p['id'] for p in game['players']]
+        random.shuffle(p_ids)
+        
+        roles = {}
+        roles[p_ids[0]] = "Traitor 😈"
+        if len(p_ids) >= 8: roles[p_ids[1]] = "Traitor 😈"
+        
+        specialists = {2: "Detective 🕵️", 3: "Guardian 🛡️", 4: "Chaos Agent 🎲"}
+        for i, name in specialists.items():
+            if i < len(p_ids) and p_ids[i] not in roles: roles[p_ids[i]] = name
+            
+        for pid in p_ids:
+            if pid not in roles: roles[pid] = "Witness 👤"
+            
+        game['roles'] = roles
+        
+        # 5. The Whispering (The Handshake Check)
+        for pid, role in roles.items():
+            pwr = {"Traitor 😈": "/gaslight", "Detective 🕵️": "/scan", "Guardian 🛡️": "/shield", "Chaos Agent 🎲": "/blackout"}.get(role, "Survival")
+            try: 
+                await context.bot.send_message(chat_id=pid, text=f"🔥 ROLE: {role}\nPOWER: {pwr}")
+            except Exception as e:
+                p_name = next((p['name'] for p in game['players'] if p['id'] == pid), "A player")
+                await update.message.reply_text(f"❌ <b>FAILED:</b> {html.escape(p_name)} blocked my whisper! Hit 'START' in my DM and try again.", parse_mode='HTML')
+                return
 
-    game['active'] = True
-    await update.message.reply_text(f"💜 <b>GOAL: {game['goal']}</b> 💙\nRoles whispered.", parse_mode='HTML')
+        game['active'] = True
+        await update.message.reply_text(f"💜 <b>GOAL: {game['goal']}</b> 💙\nRoles whispered. The game is ON.", parse_mode='HTML')
+
+    except Exception as e:
+   
+        await update.message.reply_text(f"⚠️ <b>ARCHITECT ERROR:</b> {str(e)}", parse_mode='HTML')
 
 # --- POWERS ---
 async def gaslight(update: Update, context: ContextTypes.DEFAULT_TYPE):
